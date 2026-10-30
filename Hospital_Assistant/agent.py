@@ -1,4 +1,3 @@
-
 """Tool-calling agent loop built on the Google Gemini API (free tier friendly)."""
 import os
 import time
@@ -7,14 +6,19 @@ from datetime import date
 from google import genai
 from google.genai import errors, types
 
+from .data import DOCTORS
 from .tools import TOOL_FUNCTIONS, TOOL_SCHEMAS
 
-MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+
+# The clinic has one doctor, so we give the assistant his id directly.
+# This saves one slow round trip to Gemini on every booking.
+DOCTOR_ID, DOCTOR = next(iter(DOCTORS.items()))
 
 SYSTEM_PROMPT = f"""You are a friendly front-desk assistant for an Orthodontics and Dentofacial
 Orthopedics clinic. Today's date is {date.today().isoformat()}.
 
-You help with: checking Dr. Avinash Shankar Sherker's slots, booking/cancelling appointments
+You help with: checking {DOCTOR['name']}'s slots, booking/cancelling appointments
 (consultation, adjustment, retainer check, emergency repair), general info on braces,
 aligners, retainers and jaw-growth appliances, clinic details, and temporary aftercare tips.
 
@@ -30,12 +34,13 @@ Scope rules:
   to go to a hospital emergency room or call 112/108 right away.
 - For urgent issues like a poking wire or loose bracket, share a temporary tip and offer
   the earliest 'emergency repair' slot.
-- This clinic has ONE orthodontist only: Dr. Avinash Shankar Sherker. Call search_doctors
-  once to get his doctor_id and use it for slots and bookings. Never ask the patient to
+- This clinic has ONE orthodontist only: {DOCTOR['name']} (doctor_id "{DOCTOR_ID}").
+  Use that doctor_id directly. Do not call search_doctors and never ask the patient to
   choose a doctor.
 - Use tools for facts (slots, info). Never invent them.
-- Before booking, confirm patient name, doctor, date, time and visit type with the user.
-- Ask only for missing details, one step at a time. Keep replies short and kind.
+- For a booking, ask for ALL missing details in one short message: patient name, date,
+  time and visit type. Then confirm and book.
+- Keep replies short and kind. Do not use more tool calls than needed.
 - Do not ask for or store ID numbers or full medical records.
 """
 
@@ -57,14 +62,20 @@ class OrthoAgent:
             raise RuntimeError(
                 "GEMINI_API_KEY not found. Add it to your .env file: GEMINI_API_KEY=your-key"
             )
-        self.client = genai.Client(api_key=api_key)
+        self.client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=45000),  # 45 seconds, in milliseconds
+        )
+
+        config = dict(system_instruction=SYSTEM_PROMPT, tools=_build_tools())
+        if MODEL.startswith("gemini-3"):
+            # Gemini 3 models "think" for a long time by default. "low" is much faster.
+            config["thinking_config"] = types.ThinkingConfig(thinking_level="low")
+
         # Gemini calls the tool functions automatically and keeps the chat history.
         self.chat_session = self.client.chats.create(
             model=MODEL,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                tools=_build_tools(),
-            ),
+            config=types.GenerateContentConfig(**config),
         )
 
     def chat(self, user_input: str) -> str:
@@ -80,3 +91,5 @@ class OrthoAgent:
                 if e.code == 429:
                     return "Free-tier limit reached. Please wait a minute and try again."
                 raise
+            except Exception as e:
+                return f"Sorry, I could not answer ({type(e).__name__}). Please try again."
