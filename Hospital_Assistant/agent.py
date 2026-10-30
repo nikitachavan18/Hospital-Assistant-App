@@ -89,7 +89,7 @@ class OrthoAgent:
                 time.sleep(2 * 2 ** attempt)  # waits 2s, 4s, 8s, then tries again
             except errors.ClientError as e:
                 if e.code == 429:
-                    return "Free-tier limit reached. Please wait a minute and try again."
+                                        return f"Free-tier limit reached: {str(getattr(e, 'message', ''))[:150]}"
                 raise
             except Exception as e:
                 return f"Sorry, I could not answer ({type(e).__name__}). Please try again."
