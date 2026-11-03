@@ -1,3 +1,4 @@
+
 """Orthodontic Assistant: website-style home page + booking chat + doctor view.
 Run with:  python -m streamlit run app.py
 """
@@ -20,12 +21,13 @@ load_dotenv(BASE / "Hospital_Assistant" / ".env")
 
 # When deployed online, keys come from Streamlit "Secrets" instead of .env
 try:
-    for _k in ("GEMINI_API_KEY", "GEMINI_MODEL", "DOCTOR_PIN"):
+    for _k in ("GEMINI_API_KEY", "GEMINI_MODEL", "DOCTOR_PIN", "SUPABASE_URL", "SUPABASE_KEY"):
         if _k in st.secrets:
             os.environ[_k] = str(st.secrets[_k])
 except Exception:
     pass  # no secrets file when running locally
 
+import storage  # noqa: E402
 from Hospital_Assistant import tools  # noqa: E402
 from Hospital_Assistant.agent import OrthoAgent  # noqa: E402
 from Hospital_Assistant.data import APPOINTMENTS, DOCTORS  # noqa: E402
@@ -68,25 +70,26 @@ DOCTOR_PIN = os.getenv("DOCTOR_PIN", "1234")  # set your own in .env or Secrets
 DOCTOR = next(iter(DOCTORS.values()))
 
 # ----------------------------------------------------------------------------
-# Saving appointments to a file so they survive a restart
+# Saving appointments (online database if set up, otherwise a local file)
 # ----------------------------------------------------------------------------
 @st.cache_resource
 def init_storage():
-    if APPT_FILE.exists():
-        try:
-            APPOINTMENTS.update(json.loads(APPT_FILE.read_text(encoding="utf-8")))
-        except Exception:
-            pass
+    APPOINTMENTS.update(storage.load_all(APPT_FILE))  # raises an error if the database is down
     nums = [int(k[3:]) for k in APPOINTMENTS if k[3:].isdigit()]
     tools._counter = itertools.count(max(nums, default=0) + 1)  # avoid duplicate IDs
     return True
 
 
 def save_appointments():
-    APPT_FILE.write_text(json.dumps(APPOINTMENTS, indent=2), encoding="utf-8")
+    if not storage.save_changes(APPOINTMENTS, APPT_FILE):
+        st.error("Could not save your appointment. Please contact the clinic.")
 
 
-init_storage()
+try:
+    init_storage()
+except Exception as e:
+    st.error(f"Could not connect to the appointment database: {e}")
+    st.stop()
 
 # ----------------------------------------------------------------------------
 # Look and feel (same colours as the clinic website)
@@ -97,6 +100,9 @@ CSS = """<style>
 .block-container{max-width:1100px;padding-top:4.5rem}
 button[kind="primary"], [data-testid="stBaseButton-primary"]{background-color:#0F766E !important;border:0 !important;color:#fff !important;font-weight:700 !important;padding:0.6rem 1.6rem !important}
 button[kind="primary"]:hover, [data-testid="stBaseButton-primary"]:hover{background-color:#0B544F !important}
+button[kind="secondary"], [data-testid="stBaseButton-secondary"]{background-color:#fff !important;border:1.5px solid #0F766E !important;font-weight:700 !important;white-space:nowrap !important}
+[data-testid="stBaseButton-secondary"] p, button[kind="secondary"] p{color:#0F766E !important;font-weight:700 !important}
+button[kind="secondary"]:hover, [data-testid="stBaseButton-secondary"]:hover{background-color:#D8ECE8 !important}
 .hdr{background:#10282B;color:#fff;font-weight:700;font-size:28px;padding:18px 24px;border-radius:12px;margin-bottom:40px}
 .eyebrow{font-weight:700;color:#0F766E;margin-bottom:12px}
 .hero-h{font-family:Georgia,serif;font-weight:600;font-size:52px;line-height:1.1;color:#10282B;max-width:760px;margin-bottom:18px}
@@ -193,7 +199,6 @@ if page == "Home":
     st.markdown(home_top_html(), unsafe_allow_html=True)
     st.button("Book an appointment", type="primary", on_click=go_book, key="hero_book")
     st.markdown(home_bottom_html(), unsafe_allow_html=True)
-    
     st.stop()
 
 # ============================================================================
@@ -219,6 +224,7 @@ if page == "Doctor view":
              "Visit type": a["visit_type"], "Status": a["status"]}
             for i, a in APPOINTMENTS.items()]
     df = pd.DataFrame(rows, columns=["ID", "Patient", "Date", "Time", "Visit type", "Status"])
+    all_df = df.copy()  # everything, for the backup file
 
     if not st.checkbox("Show cancelled"):
         df = df[df["Status"] == "confirmed"]
@@ -241,6 +247,10 @@ if page == "Doctor view":
                 tools.cancel_appointment(cancel_id)
                 save_appointments()
                 st.rerun()
+    st.download_button("Download backup (CSV)", data=all_df.to_csv(index=False),
+                       file_name="appointments_backup.csv", mime="text/csv")
+    st.caption("Saved in: online database" if storage.using_database()
+               else "Saved in: a local file only (may be lost when the app restarts)")
     if st.button("Refresh"):
         st.rerun()
     st.stop()
