@@ -10,7 +10,7 @@ from pathlib import Path
 import requests
 
 TABLE = "appointments"
-FIELDS = ["patient_name", "patient_contact", "doctor_id", "date", "time", "visit_type", "status"]
+FIELDS = ["patient_name", "patient_contact", "doctor_id", "date", "time", "age","contact_number","visit_type", "status"]
 PAGE = 1000
 _last_saved: dict = {}  # id -> the row we last sent, so we only send changes
 

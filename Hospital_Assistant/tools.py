@@ -50,7 +50,7 @@ def check_availability(doctor_id: str, date: str) -> dict:
             "available_slots": [t for t in DAILY_SLOTS if t not in booked]}
  
  
-def book_appointment(patient_name: str, doctor_id: str, date: str, time: str,
+def book_appointment(patient_name: str, doctor_id: str, date: str, time: str, age:str, contact_number:str,
                      visit_type: str = "consultation") -> dict:
     if visit_type not in VISIT_TYPES:
         return {"error": f"visit_type must be one of {VISIT_TYPES}"}
@@ -61,10 +61,10 @@ def book_appointment(patient_name: str, doctor_id: str, date: str, time: str,
         return {"error": f"{time} is not available.", "available_slots": avail["available_slots"]}
     appt_id = f"ORT{next(_counter):04d}"
     APPOINTMENTS[appt_id] = {"patient_name": patient_name, "doctor_id": doctor_id,
-                             "date": date, "time": time, "visit_type": visit_type,
+                             "date": date, "time": time, "age":age, "contact_number":contact_number, "visit_type": visit_type,
                              "status": "confirmed"}
     return {"appointment_id": appt_id, "doctor": DOCTORS[doctor_id]["name"],
-            "date": date, "time": time, "visit_type": visit_type, "status": "confirmed"}
+            "date": date, "time": time, "age":age, "contact_number":contact_number,"visit_type": visit_type, "status": "confirmed"}
  
  
 def cancel_appointment(appointment_id: str) -> dict:
@@ -135,7 +135,7 @@ TOOL_SCHEMAS = [
          "date": {"type": "string", "description": "YYYY-MM-DD"},
          "time": {"type": "string", "description": "HH:MM, 24-hour"},
          "visit_type": {"type": "string", "enum": VISIT_TYPES}},
-         "required": ["patient_name", "doctor_id", "date", "time"]}},
+         "required": ["patient_name", "doctor_id", "date", "time", "age", "contact_number"]}},
     {"name": "cancel_appointment", "description": "Cancel an appointment by its ID.",
      "input_schema": {"type": "object", "properties": {"appointment_id": {"type": "string"}}, "required": ["appointment_id"]}},
     {"name": "get_treatment_info",
