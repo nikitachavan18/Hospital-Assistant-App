@@ -10,7 +10,7 @@ from pathlib import Path
 import requests
 
 TABLE = "appointments"
-FIELDS = ["patient_name", "doctor_id", "date", "time", "visit_type", "status"]
+FIELDS = ["patient_name", "patient_contact", "doctor_id", "date", "time", "visit_type", "status"]
 PAGE = 1000
 _last_saved: dict = {}  # id -> the row we last sent, so we only send changes
 
@@ -26,8 +26,11 @@ def using_database() -> bool:
 
 
 def _headers(key: str, extra: dict | None = None) -> dict:
-    headers = {"apikey": key, "Authorization": f"Bearer {key}",
-               "Content-Type": "application/json"}
+    headers = {"apikey": key, "Content-Type": "application/json"}
+    # New-style keys (sb_secret_...) are not JWTs and must go ONLY in the apikey header.
+    # Older service_role keys are JWTs (they start with "eyJ") and also go in Authorization.
+    if key.startswith("eyJ"):
+        headers["Authorization"] = f"Bearer {key}"
     if extra:
         headers.update(extra)
     return headers
