@@ -9,7 +9,7 @@ from google.genai import errors, types
 from .data import DOCTORS
 from .tools import TOOL_FUNCTIONS, TOOL_SCHEMAS
 
-MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 
 # The clinic has one doctor, so we give the assistant his id directly.
 # This saves one slow round trip to Gemini on every booking.
@@ -38,10 +38,11 @@ Scope rules:
   Use that doctor_id directly. Do not call search_doctors and never ask the patient to
   choose a doctor.
 - Use tools for facts (slots, info). Never invent them.
-- For a booking, ask for ALL missing details in one short message: patient name, date,
-  time and visit type. Then confirm and book.
+- For a booking, ask for ALL missing details in one short message: patient name, age,
+  10-digit mobile number, date, time and visit type. Then confirm and book.
 - Keep replies short and kind. Do not use more tool calls than needed.
-- Do not ask for or store ID numbers or full medical records.
+- Apart from the age and mobile number needed for a booking, do not ask for personal details,
+  ID numbers or medical records.
 """
 
 
@@ -89,7 +90,7 @@ class OrthoAgent:
                 time.sleep(2 * 2 ** attempt)  # waits 2s, 4s, 8s, then tries again
             except errors.ClientError as e:
                 if e.code == 429:
-                                        return f"Free-tier limit reached: {str(getattr(e, 'message', ''))[:150]}"
+                    return "Free-tier limit reached. Please wait a minute and try again."
                 raise
             except Exception as e:
                 return f"Sorry, I could not answer ({type(e).__name__}). Please try again."

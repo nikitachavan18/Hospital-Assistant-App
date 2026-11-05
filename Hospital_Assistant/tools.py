@@ -1,12 +1,13 @@
 """Tools the agent can call. Each tool is a plain Python function + a JSON schema."""
 import itertools
+import re
 from datetime import datetime
- 
+
 from .data import (AFTERCARE, APPOINTMENTS, CLINIC_INFO, DAILY_SLOTS, DOCTORS,
                    TREATMENTS, VISIT_TYPES)
- 
+
 _counter = itertools.count(1)
- 
+
 EMERGENCY_KEYWORDS = [
     "facial swelling", "face swelling", "swollen face", "swelling in my face",
     "difficulty breathing", "can't breathe", "cannot breathe", "trouble swallowing",
@@ -17,8 +18,8 @@ URGENT_KEYWORDS = [
     "poking", "stabbing", "loose bracket", "broken bracket", "broken wire",
     "lost retainer", "broken retainer", "broken aligner", "loose tooth", "severe pain",
 ]
- 
- 
+
+
 def search_doctors(focus: str = "") -> dict:
     """All doctors are orthodontists. Optionally filter by focus area."""
     f = focus.lower().strip()
@@ -31,8 +32,8 @@ def search_doctors(focus: str = "") -> dict:
         found = [{"doctor_id": did, **d} for did, d in DOCTORS.items()]
         return {"doctors": found, "note": "No exact match; showing all orthodontists."}
     return {"doctors": found}
- 
- 
+
+
 def check_availability(doctor_id: str, date: str) -> dict:
     if doctor_id not in DOCTORS:
         return {"error": f"Unknown doctor_id {doctor_id}"}
@@ -48,10 +49,29 @@ def check_availability(doctor_id: str, date: str) -> dict:
     }
     return {"doctor": DOCTORS[doctor_id]["name"], "date": date,
             "available_slots": [t for t in DAILY_SLOTS if t not in booked]}
- 
- 
-def book_appointment(patient_name: str, doctor_id: str, date: str, time: str, age:str, contact_number:str,
-                     visit_type: str = "consultation") -> dict:
+
+
+def clean_mobile(number: str) -> str | None:
+    """Return a 10-digit Indian mobile number, or None if it looks wrong."""
+    digits = re.sub(r"\D", "", number or "")
+    if len(digits) == 12 and digits.startswith("91"):
+        digits = digits[2:]
+    elif len(digits) == 11 and digits.startswith("0"):
+        digits = digits[1:]
+    return digits if len(digits) == 10 and digits[0] in "6789" else None
+
+
+def book_appointment(patient_name: str, patient_age: int, patient_contact: str, doctor_id: str,
+                     date: str, time: str, visit_type: str = "consultation") -> dict:
+    try:
+        age = int(patient_age)
+    except (TypeError, ValueError):
+        age = 0
+    if not 1 <= age <= 120:
+        return {"error": "Please give the patient's age as a number between 1 and 120."}
+    mobile = clean_mobile(patient_contact)
+    if mobile is None:
+        return {"error": "Please give a valid 10-digit mobile number."}
     if visit_type not in VISIT_TYPES:
         return {"error": f"visit_type must be one of {VISIT_TYPES}"}
     avail = check_availability(doctor_id, date)
@@ -60,21 +80,22 @@ def book_appointment(patient_name: str, doctor_id: str, date: str, time: str, ag
     if time not in avail["available_slots"]:
         return {"error": f"{time} is not available.", "available_slots": avail["available_slots"]}
     appt_id = f"ORT{next(_counter):04d}"
-    APPOINTMENTS[appt_id] = {"patient_name": patient_name, "doctor_id": doctor_id,
-                             "date": date, "time": time, "age":age, "contact_number":contact_number, "visit_type": visit_type,
-                             "status": "confirmed"}
+    APPOINTMENTS[appt_id] = {"patient_name": patient_name, "patient_age": age,
+                             "patient_contact": mobile,
+                             "doctor_id": doctor_id, "date": date, "time": time,
+                             "visit_type": visit_type, "status": "confirmed"}
     return {"appointment_id": appt_id, "doctor": DOCTORS[doctor_id]["name"],
-            "date": date, "time": time, "age":age, "contact_number":contact_number,"visit_type": visit_type, "status": "confirmed"}
- 
- 
+            "date": date, "time": time, "visit_type": visit_type, "status": "confirmed"}
+
+
 def cancel_appointment(appointment_id: str) -> dict:
     appt = APPOINTMENTS.get(appointment_id.upper())
     if not appt:
         return {"error": "Appointment not found."}
     appt["status"] = "cancelled"
     return {"appointment_id": appointment_id.upper(), "status": "cancelled"}
- 
- 
+
+
 def get_treatment_info(treatment: str) -> dict:
     t = treatment.lower().strip()
     for name, info in TREATMENTS.items():
@@ -82,20 +103,20 @@ def get_treatment_info(treatment: str) -> dict:
             return {"treatment": name, "info": info,
                     "note": "General information only. Your orthodontist decides the actual plan."}
     return {"error": "Treatment not found.", "available": list(TREATMENTS)}
- 
- 
+
+
 def get_aftercare_tip(issue: str) -> dict:
     i = issue.lower().strip()
     for name, tip in AFTERCARE.items():
         if i in name or name in i:
             return {"issue": name, "tip": tip}
     return {"error": "No tip for that issue.", "available": list(AFTERCARE)}
- 
- 
+
+
 def get_clinic_info() -> dict:
     return CLINIC_INFO
- 
- 
+
+
 def triage_symptoms(symptoms: str) -> dict:
     """Basic safety check ONLY. This is not a diagnosis."""
     text = symptoms.lower()
@@ -108,8 +129,8 @@ def triage_symptoms(symptoms: str) -> dict:
                 "advice": "Offer the earliest 'emergency repair' slot and share a temporary aftercare tip."}
     return {"urgency": "routine",
             "advice": "Suggest a regular consultation or adjustment visit."}
- 
- 
+
+
 TOOL_FUNCTIONS = {
     "search_doctors": search_doctors,
     "check_availability": check_availability,
@@ -120,7 +141,7 @@ TOOL_FUNCTIONS = {
     "get_clinic_info": get_clinic_info,
     "triage_symptoms": triage_symptoms,
 }
- 
+
 TOOL_SCHEMAS = [
     {"name": "search_doctors",
      "description": "List orthodontists (MDS Orthodontics & Dentofacial Orthopedics). Optionally filter by focus, e.g. braces, clear aligners, jaw growth, pediatric.",
@@ -129,13 +150,16 @@ TOOL_SCHEMAS = [
      "input_schema": {"type": "object", "properties": {
          "doctor_id": {"type": "string"}, "date": {"type": "string", "description": "YYYY-MM-DD"}},
          "required": ["doctor_id", "date"]}},
-    {"name": "book_appointment", "description": "Book an appointment. Confirm all details with the patient first.",
+    {"name": "book_appointment", "description": "Book an appointment. Confirm all details with the patient first. The patient's age and a 10-digit mobile number are required.",
      "input_schema": {"type": "object", "properties": {
-         "patient_name": {"type": "string"}, "doctor_id": {"type": "string"},
+         "patient_name": {"type": "string"},
+         "patient_age": {"type": "integer", "description": "Patient's age in years"},
+         "patient_contact": {"type": "string", "description": "Patient's 10-digit mobile number"},
+         "doctor_id": {"type": "string"},
          "date": {"type": "string", "description": "YYYY-MM-DD"},
          "time": {"type": "string", "description": "HH:MM, 24-hour"},
          "visit_type": {"type": "string", "enum": VISIT_TYPES}},
-         "required": ["patient_name", "doctor_id", "date", "time", "age", "contact_number"]}},
+         "required": ["patient_name", "patient_age", "patient_contact", "doctor_id", "date", "time"]}},
     {"name": "cancel_appointment", "description": "Cancel an appointment by its ID.",
      "input_schema": {"type": "object", "properties": {"appointment_id": {"type": "string"}}, "required": ["appointment_id"]}},
     {"name": "get_treatment_info",

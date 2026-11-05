@@ -1,4 +1,3 @@
-
 """Orthodontic Assistant: website-style home page + booking chat + doctor view.
 Run with:  python -m streamlit run app.py
 """
@@ -220,10 +219,13 @@ if page == "Doctor view":
         st.warning("Default PIN in use. Set DOCTOR_PIN in your secrets or .env.")
     st.subheader(f"Appointments for {DOCTOR.get('name', '')}")
 
-    rows = [{"ID": i, "Patient": a["patient_name"], "Date": a["date"], "Time": a["time"],
+    rows = [{"ID": i, "Patient": a["patient_name"],
+             "Age": "" if a.get("patient_age") is None else str(a["patient_age"]),
+             "Mobile": a.get("patient_contact") or "",
+             "Date": a["date"], "Time": a["time"],
              "Visit type": a["visit_type"], "Status": a["status"]}
             for i, a in APPOINTMENTS.items()]
-    df = pd.DataFrame(rows, columns=["ID", "Patient", "Date", "Time", "Visit type", "Status"])
+    df = pd.DataFrame(rows, columns=["ID", "Patient", "Age", "Mobile", "Date", "Time", "Visit type", "Status"])
     all_df = df.copy()  # everything, for the backup file
 
     if not st.checkbox("Show cancelled"):
