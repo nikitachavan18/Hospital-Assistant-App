@@ -1,0 +1,24 @@
+name: Appointment reminders
+
+on:
+  schedule:
+    # every 30 minutes from 07:30 to 21:30 India time (GitHub uses UTC)
+    - cron: "*/30 2-15 * * *"
+  workflow_dispatch:   # lets you press "Run workflow" to test it by hand
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - run: python send_reminders.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          WHATSAPP_TOKEN: ${{ secrets.WHATSAPP_TOKEN }}
+          WHATSAPP_PHONE_ID: ${{ secrets.WHATSAPP_PHONE_ID }}
+          DRY_RUN: ${{ vars.DRY_RUN || 'true' }}
