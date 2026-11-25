@@ -20,7 +20,8 @@ load_dotenv(BASE / "Hospital_Assistant" / ".env")
 
 # When deployed online, keys come from Streamlit "Secrets" instead of .env
 try:
-    for _k in ("GEMINI_API_KEY", "GEMINI_MODEL", "DOCTOR_PIN", "SUPABASE_URL", "SUPABASE_KEY"):
+    for _k in ("GEMINI_API_KEY", "GEMINI_MODEL", "DOCTOR_PIN", "SUPABASE_URL", "SUPABASE_KEY",
+               "REQUIRE_DATABASE"):
         if _k in st.secrets:
             os.environ[_k] = str(st.secrets[_k])
 except Exception:
@@ -83,6 +84,12 @@ def save_appointments():
     if not storage.save_changes(APPOINTMENTS, APPT_FILE):
         st.error("Could not save your appointment. Please contact the clinic.")
 
+
+# On the online app, never run without the database (bookings would be lost on restart).
+if os.getenv("REQUIRE_DATABASE", "").lower() in ("1", "true", "yes") and not storage.using_database():
+    st.error("The appointment database is not connected, so bookings would be lost. "
+             "Please contact the clinic.")
+    st.stop()
 
 try:
     init_storage()
@@ -251,8 +258,11 @@ if page == "Doctor view":
                 st.rerun()
     st.download_button("Download backup (CSV)", data=all_df.to_csv(index=False),
                        file_name="appointments_backup.csv", mime="text/csv")
-    st.caption("Saved in: online database" if storage.using_database()
-               else "Saved in: a local file only (may be lost when the app restarts)")
+    if storage.using_database():
+        st.caption("Saved in: online database")
+    else:
+        st.error("Bookings are NOT saved permanently. They are kept in a temporary file "
+                 "that is erased when the app restarts. Connect the database in Secrets.")
     if st.button("Refresh"):
         st.rerun()
     st.stop()
